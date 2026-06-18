@@ -9,18 +9,35 @@ export default async function handler(req, res) {
   if (!apiKey) return res.status(500).json({ error: "ANTHROPIC_API_KEY not set in Vercel environment variables." });
 
   try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify(req.body),
+    const https = require("https");
+    const body = JSON.stringify(req.body);
+
+    const data = await new Promise((resolve, reject) => {
+      const options = {
+        hostname: "api.anthropic.com",
+        path: "/v1/messages",
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+          "Content-Length": Buffer.byteLength(body),
+        },
+      };
+      const request = https.request(options, (response) => {
+        let raw = "";
+        response.on("data", chunk => raw += chunk);
+        response.on("end", () => {
+          try { resolve({ status: response.statusCode, body: JSON.parse(raw) }); }
+          catch { reject(new Error("Invalid JSON response")); }
+        });
+      });
+      request.on("error", reject);
+      request.write(body);
+      request.end();
     });
-    const data = await response.json();
-    if (!response.ok) return res.status(response.status).json({ error: data.error || "Anthropic API error" });
-    return res.status(200).json(data);
+
+    return res.status(data.status).json(data.body);
   } catch (err) {
     return res.status(500).json({ error: "Proxy error: " + err.message });
   }
